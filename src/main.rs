@@ -9,7 +9,10 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 struct Badger {
     pub name: String,
+    pub gender: String,
     pub discipline: String,
+    pub seniority: String,
+    pub client: String,
     pub team: String,
 }
 
@@ -22,7 +25,11 @@ fn read_badgers() -> Result<Vec<Badger>, Box<dyn Error>> {
 
 impl fmt::Display for Badger {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({}, {})", self.name, self.discipline, self.team)?;
+        write!(
+            f,
+            "{} ({}, {}, {}, {}, {})",
+            self.name, self.gender, self.discipline, self.seniority, self.client, self.team
+        )?;
 
         Ok(())
     }
@@ -197,16 +204,28 @@ impl<'a> Solution<'a> {
     }
 
     fn group_score(group: &Vec<&Badger>, ideal_size: f64) -> f64 {
+        let mut genders: HashSet<&String> = HashSet::new();
         let mut disciplines: HashSet<&String> = HashSet::new();
+        let mut seniorities: HashSet<&String> = HashSet::new();
+        let mut clients: HashSet<&String> = HashSet::new();
         let mut teams: HashSet<&String> = HashSet::new();
 
         for badger in group {
+            genders.insert(&badger.gender);
             disciplines.insert(&badger.discipline);
+            seniorities.insert(&badger.seniority);
+            clients.insert(&badger.client);
             teams.insert(&badger.team);
         }
 
-        let diff = (ideal_size - group.len() as f64).abs();
-        disciplines.len() as f64 + teams.len() as f64 - 4.0 * diff
+        let size = -(ideal_size - group.len() as f64).abs();
+        let genders: f64 = disciplines.len() as f64;
+        let disciplines: f64 = disciplines.len() as f64;
+        let seniorities: f64 = seniorities.len() as f64;
+        let clients: f64 = clients.len() as f64;
+        let teams: f64 = teams.len() as f64;
+
+        4.0 * size + 5.0 * genders + disciplines + seniorities + clients + teams
     }
 }
 
@@ -220,8 +239,8 @@ fn main() {
             let mut generation = Generation::new(&badgers, 60, 9);
 
             generation.crossover_rate = 0.6;
-            generation.mutation_rate = 0.4;
-            generation.survival_rate = 0.2;
+            generation.mutation_rate = 0.5;
+            generation.survival_rate = 0.3;
 
             for i in 0..150 {
                 let fittest = generation.fittest();
