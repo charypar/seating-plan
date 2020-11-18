@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::{fmt, io, process};
 
@@ -18,7 +18,7 @@ struct Badger {
 
 fn read_badgers() -> Result<Vec<Badger>, Box<dyn Error>> {
     let mut reader = csv::Reader::from_reader(io::stdin());
-    let badgers = reader.deserialize().collect::<Result<Vec<_>, _>>()?;
+    let badgers = reader.deserialize().collect::<Result<Vec<Badger>, _>>()?;
 
     Ok(badgers)
 }
@@ -63,37 +63,40 @@ fn cross_over(mother: &Vec<usize>, father: &Vec<usize>) -> Vec<usize> {
     child
 }
 
-struct Generation<'a> {
-    pub badgers: &'a Vec<Badger>,
+struct Generation<F: Fn(&Vec<usize>) -> f64> {
     pub population: Vec<Vec<usize>>,
     pub ngroups: usize,
     pub crossover_rate: f64,
     pub mutation_rate: f64,
     pub survival_rate: f64,
+    pub fitness: F,
 }
 
-impl<'a> Generation<'a> {
-    fn new(badgers: &'a Vec<Badger>, population_size: usize, ngroups: usize) -> Self {
+impl<F: Fn(&Vec<usize>) -> f64> Generation<F> {
+    fn new(population_size: usize, ngroups: usize, nbadgers: usize, fitness: F) -> Self {
         let rng = rand::thread_rng();
+
         let dist = Uniform::new(1, ngroups);
         let init_pop: Vec<Vec<usize>> = (0..population_size)
-            .map(|_| rng.sample_iter(dist).take(badgers.len()).collect())
+            .map(|_| rng.sample_iter(dist).take(nbadgers).collect())
             .collect();
 
         assert_eq!(init_pop.len(), population_size);
 
         Generation {
-            badgers,
             population: init_pop,
             ngroups,
             crossover_rate: 0.85,
             mutation_rate: 0.15,
             survival_rate: 0.2,
+            fitness: fitness,
         }
     }
 
-    pub fn next_gen(&self) -> Self {
+    pub fn next_gen(self) -> Self {
         let size = self.population.len();
+
+        // Selection
 
         let fittest = self.fittest();
         let fittest_count = fittest.len();
@@ -125,108 +128,134 @@ impl<'a> Generation<'a> {
 
         assert_eq!(self.population.len(), population.len());
 
-        Generation {
-            badgers: self.badgers,
-            population,
-            ..*self
-        }
+        Generation { population, ..self }
     }
 
     fn fittest(&self) -> Vec<Vec<usize>> {
         let mut fittest = self.population.clone();
 
-        // Selection
-
-        fittest.sort_by(|a, b| {
-            let sa = Solution::new(a, self.badgers);
-            let sb = Solution::new(b, self.badgers);
-
-            sb.score().partial_cmp(&sa.score()).unwrap()
-        });
+        fittest.sort_by(|a, b| (self.fitness)(a).partial_cmp(&(self.fitness)(b)).unwrap());
 
         let survivor_count = (fittest.len() as f64 * self.survival_rate).floor() as usize;
         fittest[0..survivor_count].to_owned()
     }
 }
 
-// Fitness
+// Fitness metric calculations
 
+// Histogram keeps representation and proportion of values
 #[derive(Debug)]
-struct Solution<'a>(Vec<(&'a usize, &'a Badger)>);
+struct Histogram<T: Eq + std::hash::Hash> {
+    counts: HashMap<T, usize>,
+    total: usize,
+}
 
-impl<'a> fmt::Display for Solution<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut groups: HashMap<usize, Vec<&Badger>> = HashMap::new();
+impl<T> Histogram<T>
+where
+    T: Eq + std::hash::Hash,
+{
+    fn new() -> Self {
+        Self {
+            counts: HashMap::new(),
+            total: 0,
+        }
+    }
 
-        for (group, badger) in &self.0 {
-            groups.entry(**group).or_insert(vec![]).push(badger);
+    fn insert(&mut self, item: T) {
+        *self.counts.entry(item).or_insert(0) += 1;
+        self.total += 1;
+    }
+
+    // Distance between two representations
+    fn diff(&self, other: &Histogram<T>) -> f64 {
+        let diff = (self.counts.len() as i32 - other.counts.len() as i32).abs();
+
+        if diff > 0 {
+            return diff as f64;
         }
 
-        let ideal_size = self.0.len() as f64 / groups.len() as f64;
-        for (n, group) in &groups {
-            write!(
-                f,
-                "= Group #{} ({} badgers, score: {}): \n",
-                n,
-                group.len(),
-                Solution::group_score(&group, ideal_size)
-            )?;
+        // If we we've matched the sets, compare proportions
 
-            for badger in group {
-                write!(f, "{}\n", badger)?;
-            }
+        let mut score = 0.0;
 
-            write!(f, "\n")?;
+        for key in self.counts.keys() {
+            let self_score = self
+                .counts
+                .get(key)
+                .map(|it| *it as f64 / self.total as f64)
+                .unwrap_or(0.0);
+            let other_score = other
+                .counts
+                .get(key)
+                .map(|it| *it as f64 / self.total as f64)
+                .unwrap_or(0.0);
+
+            score += (self_score - other_score).powf(2.0);
         }
-        write!(f, "Total score: {}\n\n", self.score())?;
 
-        Ok(())
+        score
     }
 }
 
-impl<'a> Solution<'a> {
-    pub fn new(groups: &'a Vec<usize>, badgers: &'a Vec<Badger>) -> Self {
-        Solution(groups.iter().zip(badgers.iter()).collect())
-    }
+// Profile of a group as histograms of attributes
+#[derive(Debug)]
+struct Profile<'a> {
+    genders: Histogram<&'a String>,
+    disciplines: Histogram<&'a String>,
+    seniorities: Histogram<&'a String>,
+    clients: Histogram<&'a String>,
+    teams: Histogram<&'a String>,
+    pub count: f64,
+}
 
-    pub fn score(&self) -> f64 {
-        let mut groups: HashMap<usize, Vec<&Badger>> = HashMap::new();
-
-        for (group, badger) in &self.0 {
-            groups.entry(**group).or_insert(vec![]).push(badger);
+impl<'a> Profile<'a> {
+    fn new() -> Self {
+        Self {
+            genders: Histogram::new(),
+            disciplines: Histogram::new(),
+            seniorities: Histogram::new(),
+            clients: Histogram::new(),
+            teams: Histogram::new(),
+            count: 0.0,
         }
-
-        let ideal_size = self.0.len() as f64 / groups.len() as f64;
-        groups
-            .values()
-            .map(|g| Solution::group_score(g, ideal_size))
-            .sum()
     }
 
-    fn group_score(group: &Vec<&Badger>, ideal_size: f64) -> f64 {
-        let mut genders: HashSet<&String> = HashSet::new();
-        let mut disciplines: HashSet<&String> = HashSet::new();
-        let mut seniorities: HashSet<&String> = HashSet::new();
-        let mut clients: HashSet<&String> = HashSet::new();
-        let mut teams: HashSet<&String> = HashSet::new();
-
-        for badger in group {
-            genders.insert(&badger.gender);
-            disciplines.insert(&badger.discipline);
-            seniorities.insert(&badger.seniority);
-            clients.insert(&badger.client);
-            teams.insert(&badger.team);
-        }
-
-        let size = -(ideal_size - group.len() as f64).abs();
-        let genders: f64 = disciplines.len() as f64;
-        let disciplines: f64 = disciplines.len() as f64;
-        let seniorities: f64 = seniorities.len() as f64;
-        let clients: f64 = clients.len() as f64;
-        let teams: f64 = teams.len() as f64;
-
-        4.0 * size + 5.0 * genders + disciplines + seniorities + clients + teams
+    fn insert(&mut self, badger: &'a Badger) {
+        self.count += 1.0;
+        self.genders.insert(&badger.gender);
+        self.disciplines.insert(&badger.discipline);
+        self.seniorities.insert(&badger.seniority);
+        self.clients.insert(&badger.client);
+        self.teams.insert(&badger.team);
     }
+}
+
+// Fitness score itself, lower is better
+
+fn fitness(solution: &Vec<usize>, badgers: &Vec<Badger>, ideal: &Profile) -> f64 {
+    let mut profiles: HashMap<usize, Profile> = HashMap::new();
+
+    for i in 0..solution.len() {
+        profiles
+            .entry(solution[i])
+            .or_insert(Profile::new())
+            .insert(&badgers[i])
+    }
+
+    profiles
+        .values()
+        .map(|group| {
+            let size = (ideal.count - group.count).abs();
+
+            let gender = ideal.genders.diff(&group.genders);
+            let discipline = ideal.disciplines.diff(&group.disciplines);
+            let seniority = ideal.seniorities.diff(&group.seniorities);
+            let client = ideal.clients.diff(&group.clients);
+            let team = ideal.teams.diff(&group.teams);
+
+            10.0 * size + 6.0 * gender + 3.0 * discipline + seniority + 2.0 + client + team
+        })
+        .sum::<f64>()
 }
 
 fn main() {
@@ -236,27 +265,51 @@ fn main() {
             process::exit(1);
         }
         Ok(badgers) => {
-            let mut generation = Generation::new(&badgers, 60, 9);
+            let mut ideal = Profile::new();
+            for badger in badgers.iter() {
+                ideal.insert(badger)
+            }
+            ideal.count = badgers.len() as f64 / 9.0;
 
-            generation.crossover_rate = 0.6;
+            // Initial generation
+
+            let mut generation = Generation::new(150, 9, badgers.len(), |solution| {
+                fitness(solution, &badgers, &ideal)
+            });
+
+            // metaheuristic parameters
+
+            generation.crossover_rate = 0.5;
             generation.mutation_rate = 0.5;
-            generation.survival_rate = 0.3;
+            generation.survival_rate = 0.2;
 
-            for i in 0..150 {
+            // Optimisation loop
+            for i in 0..300 {
                 let fittest = generation.fittest();
                 let best = &fittest[0];
-                println!(
-                    "Gen {} - best: {}",
-                    i,
-                    Solution::new(best, &badgers).score()
-                );
+                let score = fitness(best, &badgers, &ideal);
+
+                println!("Gen {:>4} - best: {:.5} - {:?}", i, score, best);
 
                 generation = generation.next_gen();
             }
 
+            // Print results
+
             let fittest = generation.fittest();
             let best = &fittest[0];
-            println!("Winner:\n{}", Solution::new(best, &badgers));
+
+            let mut tagged: Vec<_> = best.into_iter().zip(&badgers).collect();
+            tagged.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+            let mut group: i32 = 0;
+            for (g, badger) in tagged {
+                if *g as i32 > group {
+                    group += 1;
+                    println!("= Group #{}", group);
+                }
+                println!("{}", badger);
+            }
         }
     }
 }
