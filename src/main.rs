@@ -284,18 +284,18 @@ fn main() {
 
             // Initial generation
 
-            let mut generation = Generation::new(300, 9, badgers.len(), |solution| {
+            let mut generation = Generation::new(1000, 9, badgers.len(), |solution| {
                 fitness(solution, &badgers, &ideal)
             });
 
             // metaheuristic parameters
 
-            generation.crossover_rate = 0.5;
-            generation.mutation_rate = 0.5;
-            generation.survival_rate = 0.2;
+            generation.crossover_rate = 0.4;
+            generation.mutation_rate = 0.3;
+            generation.survival_rate = 0.5;
 
             // Optimisation loop
-            for i in 0..300 {
+            for i in 0..500 {
                 let fittest = generation.fittest();
                 let best = &fittest[0];
                 let score = fitness(best, &badgers, &ideal);
