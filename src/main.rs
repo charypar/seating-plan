@@ -4,6 +4,7 @@ use std::{fmt, io, process};
 
 use csv;
 use rand::{self, distributions::Distribution, distributions::Uniform, Rng};
+use rayon::prelude::*;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -63,7 +64,7 @@ fn cross_over(mother: &Vec<usize>, father: &Vec<usize>) -> Vec<usize> {
     child
 }
 
-struct Generation<F: Fn(&Vec<usize>) -> f64> {
+struct Generation<F: Fn(&Vec<usize>) -> f64 + Sync> {
     pub population: Vec<Vec<usize>>,
     pub ngroups: usize,
     pub crossover_rate: f64,
@@ -72,7 +73,7 @@ struct Generation<F: Fn(&Vec<usize>) -> f64> {
     pub fitness: F,
 }
 
-impl<F: Fn(&Vec<usize>) -> f64> Generation<F> {
+impl<F: Fn(&Vec<usize>) -> f64 + Sync> Generation<F> {
     fn new(population_size: usize, ngroups: usize, nbadgers: usize, fitness: F) -> Self {
         let rng = rand::thread_rng();
 
@@ -136,7 +137,7 @@ impl<F: Fn(&Vec<usize>) -> f64> Generation<F> {
 
         let mut scored_fittest = self
             .population
-            .iter()
+            .par_iter()
             .map(|individual| (individual, (self.fitness)(individual)))
             .collect::<Vec<_>>();
 
@@ -283,7 +284,7 @@ fn main() {
 
             // Initial generation
 
-            let mut generation = Generation::new(150, 9, badgers.len(), |solution| {
+            let mut generation = Generation::new(300, 9, badgers.len(), |solution| {
                 fitness(solution, &badgers, &ideal)
             });
 

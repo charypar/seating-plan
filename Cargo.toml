@@ -10,3 +10,4 @@ edition = "2018"
 csv = "1.1"
 serde = { version = "1", features = ["derive"] }
 rand = "0.7.3"
+rayon = "1.5"
