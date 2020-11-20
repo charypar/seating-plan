@@ -6,7 +6,7 @@ Optimising a seating plan for maximum diversity with genetic algorithms.
 
 This tool atempts to find N optimal subgroups of a larger group, such that various traits are represented fairly in the subgroups.
 
-It uses a Genetic Algorithm optimisation to find the solution, by evaluating each group and adding up the group scores to the total score of the solution - its "fitness".
+It uses a [Genetic Algorithm](https://en.wikipedia.org/wiki/Genetic_algorithm) optimisation to find the solution, by evaluating each group and adding up the group scores to the total score of the solution - its "fitness".
 
 A group scores well if:
 
