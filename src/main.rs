@@ -132,11 +132,21 @@ impl<F: Fn(&Vec<usize>) -> f64> Generation<F> {
     }
 
     fn fittest(&self) -> Vec<Vec<usize>> {
-        let mut fittest = self.population.clone();
+        let survivor_count = (self.population.len() as f64 * self.survival_rate).floor() as usize;
 
-        fittest.sort_by(|a, b| (self.fitness)(a).partial_cmp(&(self.fitness)(b)).unwrap());
+        let mut scored_fittest = self
+            .population
+            .iter()
+            .map(|individual| (individual, (self.fitness)(individual)))
+            .collect::<Vec<_>>();
 
-        let survivor_count = (fittest.len() as f64 * self.survival_rate).floor() as usize;
+        scored_fittest.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+        let fittest = scored_fittest
+            .into_iter()
+            .map(|item| item.0.clone())
+            .collect::<Vec<_>>();
+
         fittest[0..survivor_count].to_owned()
     }
 }
